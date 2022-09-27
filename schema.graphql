@@ -1,0 +1,518 @@
+ type JswapFactory @entity {
+  # factory address
+  id: ID!
+
+  # pair info
+  pairCount: Int!
+
+  # total volume
+  totalVolumeUSD: BigDecimal!
+  totalVolumeETH: BigDecimal!
+
+  # untracked values - less confident USD scores
+  untrackedVolumeUSD: BigDecimal!
+
+  # total liquidity
+  totalLiquidityUSD: BigDecimal!
+  totalLiquidityETH: BigDecimal!
+
+  # transactions
+  txCount: BigInt!
+
+  rate: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type JswapFeeVault @entity {
+  # factory address
+  id: ID!
+
+  valid: BigInt!
+  base: BigInt!
+
+  updateFeeAtTimestamp: BigInt!
+  updateFeeAtBlockNumber: BigInt!
+
+  # total swap fees all time in USD
+  totalFeesUSD: BigDecimal!
+  # total swap fees all time in USD
+  totalFeesETH: BigDecimal!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type Token @entity {
+  # token address
+  id: ID!
+
+  # mirrored from the smart contract
+  symbol: String!
+  name: String!
+  decimals: BigInt!
+
+  # used for other stats like marketcap
+  totalSupply: BigInt!
+
+  # token specific volume
+  tradeVolume: BigDecimal!
+  tradeVolumeUSD: BigDecimal!
+  untrackedVolumeUSD: BigDecimal!
+
+  # transactions across all pairs
+  txCount: BigInt!
+
+  # liquidity across all pairs
+  totalLiquidity: BigDecimal!
+
+  # derived prices
+  derivedETH: BigDecimal
+
+  # derived fields
+  tokenDayData: [TokenDayData!]! @derivedFrom(field: "token")
+  pairDayDataBase: [PairDayData!]! @derivedFrom(field: "token0")
+  pairDayDataQuote: [PairDayData!]! @derivedFrom(field: "token1")
+  pairBase: [Pair!]! @derivedFrom(field: "token0")
+  pairQuote: [Pair!]! @derivedFrom(field: "token1")
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type Pair @entity {
+  # pair address
+  id: ID!
+
+  # mirrored from the smart contract
+  token0: Token!
+  token1: Token!
+  reserve0: BigDecimal!
+  reserve1: BigDecimal!
+  totalSupply: BigDecimal!
+
+  # derived liquidity
+  reserveETH: BigDecimal!
+  reserveUSD: BigDecimal!
+  # used for separating per pair reserves and global
+  trackedReserveETH: BigDecimal!
+
+  # Price in terms of the asset pair
+  token0Price: BigDecimal!
+  token1Price: BigDecimal!
+
+  # lifetime volume stats
+  volumeToken0: BigDecimal!
+  volumeToken1: BigDecimal!
+  volumeUSD: BigDecimal!
+  untrackedVolumeUSD: BigDecimal!
+  txCount: BigInt!
+
+  # creation stats
+  createdAtTimestamp: BigInt!
+  createdAtBlockNumber: BigInt!
+
+  # Fields used to help derived relationship
+  liquidityProviderCount: BigInt! # used to detect new exchanges
+  # derived fields
+  pairHourData: [PairHourData!]! @derivedFrom(field: "pair")
+  feesHourData: [PairFeesHourData!]! @derivedFrom(field: "pair")
+  liquidityPositions: [LiquidityPosition!]! @derivedFrom(field: "pair")
+  liquidityPositionSnapshots: [LiquidityPositionSnapshot!]! @derivedFrom(field: "pair")
+  mints: [Mint!]! @derivedFrom(field: "pair")
+  burns: [Burn!]! @derivedFrom(field: "pair")
+  swaps: [Swap!]! @derivedFrom(field: "pair")
+  fees: [PairFee!]! @derivedFrom(field: "pair")
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type PairFee @entity {
+  # transaction hash + "-" + index in swaps Transaction array
+  id: ID!
+  transaction: Transaction!
+  timestamp: BigInt! # need this to pull recent txns for specific token or pair
+
+  pair: Pair!
+  rewardToken: Token!
+
+  from: Bytes! # the EOA that initiated the txn
+
+  logIndex: BigInt
+
+  amount0Fee: BigDecimal!
+  amount1Fee: BigDecimal!
+
+  # derived info
+  amount0FeeUSD: BigDecimal!
+  amount1FeeUSD: BigDecimal!
+}
+
+type User @entity {
+  id: ID!
+  liquidityPositions: [LiquidityPosition!] @derivedFrom(field: "user")
+  usdSwapped: BigDecimal!
+}
+
+type LiquidityPosition @entity {
+  id: ID!
+  user: User!
+  pair: Pair!
+  liquidityTokenBalance: BigDecimal!
+}
+
+# saved over time for return calculations, gets created and never updated
+type LiquidityPositionSnapshot @entity {
+  id: ID!
+  liquidityPosition: LiquidityPosition!
+  timestamp: Int! # saved for fast historical lookups
+  block: Int! # saved for fast historical lookups
+  user: User! # reference to user
+  pair: Pair! # reference to pair
+  token0PriceUSD: BigDecimal! # snapshot of token0 price
+  token1PriceUSD: BigDecimal! # snapshot of token1 price
+  reserve0: BigDecimal! # snapshot of pair token0 reserves
+  reserve1: BigDecimal! # snapshot of pair token1 reserves
+  reserveUSD: BigDecimal! # snapshot of pair reserves in USD
+  liquidityTokenTotalSupply: BigDecimal! # snapshot of pool token supply
+  liquidityTokenBalance: BigDecimal! # snapshot of users pool token balance
+}
+
+type Transaction @entity {
+  id: ID! # txn hash
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  # This is not the reverse of Mint.transaction; it is only used to
+  # track incomplete mints (similar for burns and swaps)
+  mints: [Mint!]!
+  burns: [Burn!]!
+  swaps: [Swap!]!
+  fees: [PairFee!]!
+  claims: [Claim!]!
+}
+
+type Mint @entity {
+  # transaction hash + "-" + index in mints Transaction array
+  id: ID!
+  transaction: Transaction!
+  timestamp: BigInt! # need this to pull recent txns for specific token or pair
+  pair: Pair!
+
+  # populated from the primary Transfer event
+  to: Bytes!
+  liquidity: BigDecimal!
+
+  # populated from the Mint event
+  sender: Bytes
+  amount0: BigDecimal
+  amount1: BigDecimal
+  logIndex: BigInt
+  # derived amount based on available prices of tokens
+  amountUSD: BigDecimal
+
+  # optional fee fields, if a Transfer event is fired in _mintFee
+  feeTo: Bytes
+  feeLiquidity: BigDecimal
+}
+
+type Burn @entity {
+  # transaction hash + "-" + index in mints Transaction array
+  id: ID!
+  transaction: Transaction!
+  timestamp: BigInt! # need this to pull recent txns for specific token or pair
+  pair: Pair!
+
+  # populated from the primary Transfer event
+  liquidity: BigDecimal!
+
+  # populated from the Burn event
+  sender: Bytes
+  amount0: BigDecimal
+  amount1: BigDecimal
+  to: Bytes
+  logIndex: BigInt
+  # derived amount based on available prices of tokens
+  amountUSD: BigDecimal
+
+  # mark uncomplete in ETH case
+  needsComplete: Boolean!
+
+  # optional fee fields, if a Transfer event is fired in _mintFee
+  feeTo: Bytes
+  feeLiquidity: BigDecimal
+}
+
+type Swap @entity {
+  # transaction hash + "-" + index in swaps Transaction array
+  id: ID!
+  transaction: Transaction!
+  timestamp: BigInt! # need this to pull recent txns for specific token or pair
+  pair: Pair!
+
+  # populated from the Swap event
+  sender: Bytes!
+  from: Bytes! # the EOA that initiated the txn
+  amount0In: BigDecimal!
+  amount1In: BigDecimal!
+  amount0Out: BigDecimal!
+  amount1Out: BigDecimal!
+  to: Bytes!
+  logIndex: BigInt
+
+  # derived info
+  amountUSD: BigDecimal!
+}
+
+# stores for USD calculations
+type Bundle @entity {
+  id: ID!
+  ethPrice: BigDecimal! # price of ETH usd
+}
+
+# Data accumulated and condensed into day stats for all of Jfswap
+type JswapDayData @entity {
+  id: ID! # timestamp rounded to current day by dividing by 86400
+  date: Int!
+
+  # pair info
+  pairCount: Int!
+
+  dailyVolumeETH: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyVolumeUntracked: BigDecimal!
+
+  totalVolumeETH: BigDecimal!
+  totalLiquidityETH: BigDecimal!
+  totalVolumeUSD: BigDecimal! # Accumulate at each trade, not just calculated off whatever totalVolume is. making it more accurate as it is a live conversion
+  totalLiquidityUSD: BigDecimal!
+
+  txCount: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type PairHourData @entity {
+  id: ID!
+  hourStartUnix: Int! # unix timestamp for start of hour
+  pair: Pair!
+
+  # reserves
+  reserve0: BigDecimal!
+  reserve1: BigDecimal!
+
+  # total supply for LP historical returns
+  totalSupply: BigDecimal!
+
+  # derived liquidity
+  reserveUSD: BigDecimal!
+
+  # volume stats
+  hourlyVolumeToken0: BigDecimal!
+  hourlyVolumeToken1: BigDecimal!
+  hourlyVolumeUSD: BigDecimal!
+  hourlyTxns: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+# Data accumulated and condensed into day stats for each exchange
+type PairDayData @entity {
+  id: ID!
+  date: Int!
+  pairAddress: Bytes!
+  token0: Token!
+  token1: Token!
+
+  # reserves
+  reserve0: BigDecimal!
+  reserve1: BigDecimal!
+
+  # total supply for LP historical returns
+  totalSupply: BigDecimal!
+
+  # derived liquidity
+  reserveUSD: BigDecimal!
+
+  # volume stats
+  dailyVolumeToken0: BigDecimal!
+  dailyVolumeToken1: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyTxns: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type TokenDayData @entity {
+  id: ID!
+  date: Int!
+  token: Token!
+
+  # volume stats
+  dailyVolumeToken: BigDecimal!
+  dailyVolumeETH: BigDecimal!
+  dailyVolumeUSD: BigDecimal!
+  dailyTxns: BigInt!
+
+  # liquidity stats
+  totalLiquidityToken: BigDecimal!
+  totalLiquidityETH: BigDecimal!
+  totalLiquidityUSD: BigDecimal!
+
+  # price stats
+  priceUSD: BigDecimal!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type TokenHourData @entity {
+  id: ID!
+  hourStartUnix: Int! # unix timestamp for start of hour
+  token: Token!
+
+  # volume stats
+  hourlyVolumeToken: BigDecimal!
+  hourlyVolumeETH: BigDecimal!
+  hourlyVolumeUSD: BigDecimal!
+  hourlyTxns: BigInt!
+
+  # liquidity stats
+  totalLiquidityToken: BigDecimal!
+  totalLiquidityETH: BigDecimal!
+  totalLiquidityUSD: BigDecimal!
+
+  # price stats
+  priceUSD: BigDecimal!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+# Fees entities
+type JswapFeesDayData @entity {
+  id: ID! # timestamp rounded to current day by dividing by 86400
+  date: Int!
+
+  # pair info
+  pairCount: Int!
+
+  dailyFeesETH: BigDecimal!
+  dailyFeesUSD: BigDecimal!
+  dailyFeesUntracked: BigDecimal!
+
+  totalFeesETH: BigDecimal!
+  totalFeesUSD: BigDecimal!
+
+  dailyAprRate: BigDecimal!
+
+  txCount: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type PairFeesHourData @entity {
+  id: ID!
+  hourStartUnix: Int! # unix timestamp for start of hour
+  pair: Pair!
+
+  # volume stats
+  hourlyFeesToken0: BigDecimal!
+  hourlyFeesToken1: BigDecimal!
+  hourlyFeesToken0USD: BigDecimal!
+  hourlyFeesToken1USD: BigDecimal!
+  hourlyFeesUSD: BigDecimal!
+  hourlyTxns: BigInt!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+# Data accumulated and condensed into day stats for each exchange
+type PairFeesDayData @entity {
+  id: ID!
+  date: Int!
+  pairAddress: Bytes!
+  token0: Token!
+  token1: Token!
+
+  # volume stats
+  dailyFeesToken0: BigDecimal!
+  dailyFeesToken1: BigDecimal!
+  dailyFeesToken0USD: BigDecimal!
+  dailyFeesToken1USD: BigDecimal!
+  dailyFeesUSD: BigDecimal!
+  dailyTxns: BigInt!
+
+  dailyAprRate: BigDecimal!
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+# For PairDividend
+type UserFee @entity {
+  id: ID!
+  claims: [Claim!]! @derivedFrom(field: "user")
+  usdClaimFees: BigDecimal!
+}
+
+type UserPairFee @entity {
+  id: ID!
+  
+  user: UserFee!
+  pair: Pair!
+
+  # derived liquidity
+  accumulatedETH: BigDecimal!
+  accumulatedUSD: BigDecimal!
+
+  txCount: BigInt!
+}
+
+type PairFeesTrack @entity {
+  # pair tracker address
+  id: ID!
+
+  pair: Pair!
+
+  feeToken: Token!
+
+  # derived liquidity
+  accumulatedETH: BigDecimal!
+  accumulatedUSD: BigDecimal!
+
+  txCount: BigInt!
+
+  # creation stats
+  createdAtTimestamp: BigInt!
+  createdAtBlockNumber: BigInt!
+
+  claims: [Claim!]! @derivedFrom(field: "pairTrack")
+
+  # blocknumber
+  syncBlockNumber: BigInt!
+}
+
+type Claim @entity {
+  # transaction hash + "-" + index in mints Transaction array
+  id: ID!
+  transaction: Transaction!
+  timestamp: BigInt! # need this to pull recent txns for specific token or pair
+  logIndex: BigInt
+
+  pairTrack: PairFeesTrack!
+
+  user: UserFee!
+  amount: BigDecimal
+
+  # derived amount based on available prices of tokens
+  amountUSD: BigDecimal
+
+  automatic: Boolean
+}
